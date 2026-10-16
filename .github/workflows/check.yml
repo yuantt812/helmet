@@ -27,7 +27,7 @@ jobs:
       - name: Check Python syntax
         run: python -m compileall -q scripts
       - name: Install experiment dependencies
-        run: python -m pip install -r requirements-train.txt
+        run: python -m pip install -r requirements.txt
       - name: Verify frozen model and CPU inference
         run: |
           python - <<'PY'
@@ -38,7 +38,7 @@ jobs:
 
           config, weights = load_config("config/monitor.json")
           assert config["selected_on"] == "val"
-          cap = cv2.VideoCapture("deliverables/demo_input.mp4")
+          cap = cv2.VideoCapture("examples/demo_input.mp4")
           ok, frame = cap.read()
           cap.release()
           assert ok, "Cannot decode demo video"

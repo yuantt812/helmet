@@ -108,15 +108,15 @@ def summarize(records, threshold):
 def main():
     from ultralytics import YOLO
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--output", type=Path, default=ROOT / "deliverables/acceptance.json")
-    p.add_argument("--config-output", type=Path, default=ROOT / "config/monitor.json")
+    p.add_argument("--output", type=Path, default=ROOT / "outputs/acceptance.json")
+    p.add_argument("--config-output", type=Path, default=ROOT / "outputs/monitor.json")
     p.add_argument("--review-dir", type=Path)
     p.add_argument("--device", default="auto")
     args = p.parse_args()
     for path in (args.output, args.config_output):
         if path.exists():
             raise FileExistsError(f"Refusing to overwrite {path}")
-    weights = ROOT / "runs/helmet/yolo26n_100e_b8_20261015_145934/weights/best.pt"
+    weights = ROOT / "weights/best.pt"
     device = choose_device(args.device)
     options = dict(imgsz=640, conf=0.001, iou=0.7, max_det=300, rect=False, augment=False,
                    device=device, verbose=False, save=False)

@@ -89,7 +89,7 @@ def sheet(records, path, title, columns=5, cell=(300, 245)):
 def audit():
     for split in ("train", "test"):
         if not (RAW / split / "_annotations.coco.json").is_file():
-            raise FileNotFoundError(f"Restore the COCO dataset to {RAW} before auditing (see datasets/hard-hat-workers/README.md)")
+            raise FileNotFoundError(f"Restore the COCO dataset to {RAW} before auditing (see docs/DATASET.md)")
     records = []
     for f in sorted(RAW.glob("*/_annotations.coco.json")):
         data = json.loads(f.read_text())
@@ -139,7 +139,7 @@ def audit():
 
 def prepare():
     records = json.loads((AUDIT / "records.json").read_text())
-    review = json.loads((AUDIT / "manual_review.json").read_text())
+    review = json.loads((ROOT / "config/dataset_review.json").read_text())
     excluded = review.get("exclude", {})
     usable, removed = [], []
     seen = {}

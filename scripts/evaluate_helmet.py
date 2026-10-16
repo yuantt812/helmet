@@ -20,7 +20,7 @@ if __name__ == "__main__":
     from monitor_helmet import choose_device
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-name", required=True, help="New output name; existing directories are refused")
-    parser.add_argument("--weights", type=Path, default=ROOT / "runs/helmet/yolo26n_100e_b8_20261015_145934/weights/best.pt")
+    parser.add_argument("--weights", type=Path, default=ROOT / "weights/best.pt")
     parser.add_argument("--device", default="auto")
     args = parser.parse_args()
     weights = args.weights.resolve()

@@ -1,5 +1,5 @@
 {
-  "weights": "runs/helmet/yolo26n_100e_b8_20261015_145934/weights/best.pt",
+  "weights": "weights/best.pt",
   "weights_sha256": "034bef3b1805776ae8e5770ac3f50d8f706b8716223c989e4f8ff2137d0a6b99",
   "imgsz": 640,
   "iou": 0.7,

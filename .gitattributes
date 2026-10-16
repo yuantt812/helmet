@@ -10,5 +10,3 @@
 *.jpg binary
 *.png binary
 *.mp4 binary
-# Preserve the upstream dataset notice byte-for-byte, including its final blank line.
-/datasets/hard-hat-workers/raw/README.roboflow.txt whitespace=-blank-at-eof
