@@ -1,0 +1,26 @@
+{
+  "review_date": "2026-10-15",
+  "reviewer": "Codex visual inspection",
+  "sample_size": 100,
+  "scope": "Seed-42 random sample, with enlarged inspection of suspicious examples. Not a full annotation audit. No dedicated hand-held/placed-helmet sample was identified in the random sample.",
+  "mapping": "head represents non-hard-hat heads in reviewed examples; helmet generally covers worn hard hats and may include the face.",
+  "exclude": {
+    "train_00243": "Visible ordinary sun-hat head is unannotated; exclude incomplete/ambiguous target coverage.",
+    "train_00655": "Multiple helmet and face boxes for the same worn helmet/head create duplicate target annotations.",
+    "train_03744": "Separate helmet and face boxes on the same workers create duplicate target annotations.",
+    "train_03022": "Purple headwear is visually ambiguous between ordinary cap and safety helmet.",
+    "train_00691": "Green headwear is visually ambiguous; exclude rather than relabel.",
+    "train_04205": "Headwear under scaffold is visually ambiguous between ordinary brimmed hats and safety helmets.",
+    "train_01489": "Additional export QA found clearly visible foreground non-helmet heads without annotations.",
+    "train_00689": "Additional export QA found an unannotated visible non-helmet head in the center.",
+    "train_00976": "Additional export QA found ordinary-looking caps annotated as helmets; semantics are ambiguous."
+  },
+  "scene_groups": [
+    [
+      "test_01717",
+      "train_01455"
+    ]
+  ],
+  "scene_group_notes": "Same power-pole workers and equipment visible from two camera positions; keep together despite viewpoint changes.",
+  "additional_review": "Inspected 60 exported-label examples and 20 similarity pairs after the initial 100-image semantic sample. Exclusions include additional findings."
+}

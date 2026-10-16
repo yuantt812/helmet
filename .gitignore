@@ -1,0 +1,51 @@
+# Local environment, credentials, and caches
+.venv/
+venv/
+.config/
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+.idea/
+.vscode/
+
+# Downloaded datasets and generated YOLO exports (restore locally)
+/datasets/hard-hat-workers/raw/*
+!/datasets/hard-hat-workers/raw/README.dataset.txt
+!/datasets/hard-hat-workers/raw/README.roboflow.txt
+/datasets/hard-hat-workers/yolo/
+/datasets/hard-hat-workers/audit/records.json
+/datasets/hard-hat-workers/audit/*.jpg
+
+# Pretrained weights are downloaded by Ultralytics when training
+/weights/
+
+# Keep only frozen experiment evidence and the validated checkpoint
+/runs/*
+!/runs/helmet/
+!/runs/evaluation/
+/runs/helmet/*
+!/runs/helmet/yolo26n_100e_b8_20261015_145934/
+/runs/helmet/yolo26n_100e_b8_20261015_145934/*
+!/runs/helmet/yolo26n_100e_b8_20261015_145934/results.csv
+!/runs/helmet/yolo26n_100e_b8_20261015_145934/*.png
+!/runs/helmet/yolo26n_100e_b8_20261015_145934/logs/
+/runs/helmet/yolo26n_100e_b8_20261015_145934/logs/*
+!/runs/helmet/yolo26n_100e_b8_20261015_145934/logs/environment.json
+!/runs/helmet/yolo26n_100e_b8_20261015_145934/weights/
+/runs/helmet/yolo26n_100e_b8_20261015_145934/weights/*
+!/runs/helmet/yolo26n_100e_b8_20261015_145934/weights/best.pt
+/runs/evaluation/*
+!/runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/
+/runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/*
+!/runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/metrics.json
+!/runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/ANALYSIS.md
+!/runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/*.png
+
+# New inference outputs belong here; frozen deliverables stay versioned
+/outputs/

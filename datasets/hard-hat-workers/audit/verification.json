@@ -1,0 +1,29 @@
+{
+  "passed": true,
+  "images_verified": 7026,
+  "checks": [
+    "image bytes preserved",
+    "image-label pairing",
+    "finite and bounded coordinates",
+    "COCO-to-YOLO class and coordinates match",
+    "no exact hashes cross splits",
+    "no identified similar pair or group crosses splits"
+  ],
+  "statistics": {
+    "train": {
+      "images": 4916,
+      "helmet": 13799,
+      "no_helmet": 4677
+    },
+    "val": {
+      "images": 1406,
+      "helmet": 3938,
+      "no_helmet": 1334
+    },
+    "test": {
+      "images": 704,
+      "helmet": 1973,
+      "no_helmet": 666
+    }
+  }
+}

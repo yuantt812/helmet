@@ -1,0 +1,52 @@
+name: Check project
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      YOLO_AUTOINSTALL: "false"
+      YOLO_CONFIG_DIR: ${{ github.workspace }}/.config/ultralytics
+      MPLCONFIGDIR: ${{ github.workspace }}/.config/matplotlib
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Check Python syntax
+        run: python -m compileall -q scripts
+      - name: Install experiment dependencies
+        run: python -m pip install -r requirements-train.txt
+      - name: Verify frozen model and CPU inference
+        run: |
+          python - <<'PY'
+          import cv2
+          import numpy as np
+          from scripts.monitor_helmet import load_config
+          from ultralytics import YOLO
+
+          config, weights = load_config("config/monitor.json")
+          assert config["selected_on"] == "val"
+          cap = cv2.VideoCapture("deliverables/demo_input.mp4")
+          ok, frame = cap.read()
+          cap.release()
+          assert ok, "Cannot decode demo video"
+          model = YOLO(str(weights))
+          assert model.names == {0: "helmet", 1: "no_helmet"}
+          options = {k: config[k] for k in ("imgsz", "conf", "iou", "max_det", "rect", "augment")}
+          result = model.predict(frame, device="cpu", verbose=False, **options)[0]
+          assert np.isfinite(result.boxes.data.cpu().numpy()).all()
+          assert len(result.boxes) > 0, "Expected detections in demo frame"
+          print(f"CPU smoke passed: {len(result.boxes)} detections")
+          PY

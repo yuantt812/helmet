@@ -1,0 +1,13 @@
+{
+  "weights": "runs/helmet/yolo26n_100e_b8_20261015_145934/weights/best.pt",
+  "weights_sha256": "034bef3b1805776ae8e5770ac3f50d8f706b8716223c989e4f8ff2137d0a6b99",
+  "imgsz": 640,
+  "iou": 0.7,
+  "max_det": 300,
+  "rect": false,
+  "augment": false,
+  "conf": 0.4,
+  "selected_on": "val",
+  "selection": "max no_helmet F1 on 0.10..0.80 step 0.05; ties: precision then threshold",
+  "frozen_at": "2026-10-15T23:44:43.727314+08:00"
+}

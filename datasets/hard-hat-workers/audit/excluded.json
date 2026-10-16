@@ -1,0 +1,38 @@
+[
+  {
+    "key": "train_04205",
+    "reason": "Headwear under scaffold is visually ambiguous between ordinary brimmed hats and safety helmets."
+  },
+  {
+    "key": "train_01489",
+    "reason": "Additional export QA found clearly visible foreground non-helmet heads without annotations."
+  },
+  {
+    "key": "train_00691",
+    "reason": "Green headwear is visually ambiguous; exclude rather than relabel."
+  },
+  {
+    "key": "train_00689",
+    "reason": "Additional export QA found an unannotated visible non-helmet head in the center."
+  },
+  {
+    "key": "train_00243",
+    "reason": "Visible ordinary sun-hat head is unannotated; exclude incomplete/ambiguous target coverage."
+  },
+  {
+    "key": "train_00976",
+    "reason": "Additional export QA found ordinary-looking caps annotated as helmets; semantics are ambiguous."
+  },
+  {
+    "key": "train_00655",
+    "reason": "Multiple helmet and face boxes for the same worn helmet/head create duplicate target annotations."
+  },
+  {
+    "key": "train_03744",
+    "reason": "Separate helmet and face boxes on the same workers create duplicate target annotations."
+  },
+  {
+    "key": "train_03022",
+    "reason": "Purple headwear is visually ambiguous between ordinary cap and safety helmet."
+  }
+]
