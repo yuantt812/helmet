@@ -47,5 +47,6 @@ __pycache__/
 !/runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/ANALYSIS.md
 !/runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/*.png
 
-# New inference outputs belong here; frozen deliverables stay versioned
+# Local inputs and new inference outputs; frozen deliverables stay versioned
+/inputs/
 /outputs/

@@ -4,6 +4,8 @@
 
 ![安全帽检测效果：绿框为戴帽，红框为未戴帽](deliverables/demo_image.jpg)
 
+第一次使用可先阅读[新手入门教程](docs/GETTING_STARTED.md)，按步骤完成环境安装、图片检测和视频检测，并查阅常见报错的处理方法。
+
 ## 快速开始
 
 需要 Python 3.12 和 Git。Ultralytics 以子模块固定在实验使用的提交 `00cd4b8b187b6c7bc34776a6fe25a000f08b5fcc`。
@@ -45,7 +47,7 @@ datasets/        数据来源、人工审查、分组划分清单（不含完整
 deliverables/    最终报告、验收指标、演示图片和视频
 runs/            本次实验的最佳权重、指标与曲线（其余运行输出忽略）
 ultralytics/     固定版本的上游子模块
-docs/            GitHub 发布步骤
+docs/            新手入门教程与 GitHub 发布步骤
 ```
 
 ## 核心交付
