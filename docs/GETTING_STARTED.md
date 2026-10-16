@@ -1,306 +1,261 @@
-# 新手入门：从下载项目到完成第一次安全帽检测
+# YOLO 训练流程导读：以安全帽检测项目为例
 
-这份教程面向第一次接触 Python 或目标检测的读者。你会先用现成模型完成图片检测，再尝试视频和自己的素材。最后一节介绍如何重新训练，第一次使用时可以先跳过。
+本文面向有软件开发经验、希望通过一个实际项目了解 YOLO 训练流程的读者。阅读主线是：训练数据如何组织，一次训练怎样更新模型，怎样选择权重，以及如何把训练指标转成可用的检测配置。各阶段均对应仓库中的代码和实验产物。
 
-仓库已经包含训练好的权重和演示视频，**运行检测不需要下载完整数据集，也不需要先训练模型**。没有独立显卡也能用 CPU 运行。
+项目使用 Ultralytics YOLO26n，在 Hard Hat Workers 数据集上微调，检测 `helmet` 与 `no_helmet`。训练和评价由框架执行，项目脚本负责数据治理、实验参数、状态记录、阈值选择与结果交付。理解流程可以直接阅读代码和已有结果，无需先重新训练。
 
-## 1. 先知道程序会做什么
+## 1. 从哪里读起
 
-你提供一张图片或一个视频，模型寻找画面中能看清的头部，输出两种类别：
+建议按下面的顺序阅读：
 
-| 类别 | 含义 | 结果中的颜色 |
+| 阶段 | 代码或产物 | 重点 |
 | --- | --- | --- |
-| `helmet` | 戴安全帽 | 绿色 |
-| `no_helmet` | 未戴安全帽 | 红色 |
+| 数据准备 | [prepare_dataset.py](../scripts/prepare_dataset.py) | `audit → prepare → verify`，标签转换与分组划分 |
+| 训练入口 | [train_helmet.py](../scripts/train_helmet.py) | 加载预训练权重、传入参数、注册训练回调 |
+| 收敛过程 | [results.csv](../runs/helmet/yolo26n_100e_b8_20261015_145934/results.csv) | 每轮训练损失、验证损失和检测指标 |
+| 标准评价 | [evaluate_helmet.py](../scripts/evaluate_helmet.py) | 对固定测试集计算 AP，保存评价口径 |
+| 阈值确定 | [validate_monitor.py](../scripts/validate_monitor.py) | 验证集搜索、冻结配置、固定阈值测试 |
+| 应用推理 | [monitor_helmet.py](../scripts/monitor_helmet.py) | 校验权重、调用预测、绘制和保存结果 |
 
-![项目已经生成的检测示例](../deliverables/demo_image.jpg)
-
-这里的“模型权重”是训练得到的 `.pt` 文件，保存了模型学习到的参数。“推理”就是用这份权重检测新图片；“训练”则需要带标注的数据，让模型更新参数。
-
-先按第 2～5 节完成一次图片检测，再继续第 6 节的视频检测。
-
-## 2. 准备 Python 和 Git
-
-需要 **Python 3.12** 和 **Git**。Python 用来运行代码，Git 用来下载项目及其固定版本的依赖源码。可以从 [Python 官网](https://www.python.org/downloads/)和 [Git 官网](https://git-scm.com/downloads)安装；Windows 安装 Python 时勾选添加到 PATH。
-
-macOS 打开“终端”，Windows 打开 PowerShell，Linux 打开终端。下面的命令都在这些窗口中输入，一次执行一条；代码框中的内容可以直接复制。
-
-macOS / Linux 检查版本：
-
-```bash
-python3.12 --version
-git --version
+```mermaid
+flowchart TD
+    A[原始图片与 COCO 标注] --> B[语义核对、清洗、相似场景分组]
+    B --> C[训练集：更新参数]
+    B --> D[验证集：选择模型与阈值]
+    B --> E[测试集：报告最终效果]
+    C --> F[预训练 YOLO26n 微调]
+    D --> F
+    F --> G[按验证集指标保存 best.pt]
+    G --> H[验证集搜索置信度阈值]
+    H --> I[冻结权重哈希与推理配置]
+    I --> J[固定阈值测试与应用推理]
+    E --> J
+    G --> K[标准 AP 评价]
+    E --> K
 ```
 
-Windows 检查版本：
+图中有两条评价路径：标准 AP 衡量模型在多个置信度下的检测能力；固定阈值评价衡量应用实际使用某个阈值时的误报和漏报。后文会区分它们。
 
-```powershell
-py -3.12 --version
-git --version
+## 2. 先把业务问题变成训练样本
+
+这里采用目标检测：一张图片可以对应多个目标，每个目标都有类别和边界框。模型既要判断类别，也要定位。
+
+原始数据是 COCO 格式，包含 `helmet`、`head`、`person` 等类别。本项目保留两类：
+
+| 原始类别 | 训练类别 | class ID |
+| --- | --- | ---: |
+| `helmet` | `helmet` | 0 |
+| `head` | `no_helmet` | 1 |
+
+`person` 和父类 `Workers` 不参与训练。`head → no_helmet` 的映射经过抽样语义核对；这一步决定了模型究竟在学习什么。它识别的是可见头部的安全帽状态，不提供完整的人员跟踪与身份关联。
+
+### 标签如何转换
+
+COCO 的框是像素坐标 `[x, y, width, height]`，其中 `x, y` 为左上角。YOLO 检测标签是一行一个目标：
+
+```text
+class_id center_x / image_width center_y / image_height width / image_width height / image_height
 ```
 
-能看到 `Python 3.12.x` 和 `git version ...` 即可继续。如果显示“找不到命令”，先检查是否安装成功，并关闭终端后重新打开。
+例如，640×480 图片中一个未戴帽目标的 COCO 框为 `[100, 50, 40, 20]`，转换后为：
 
-## 3. 下载项目
-
-在你希望保存项目的目录中执行：
-
-```bash
-git clone --recurse-submodules https://github.com/yuantt812/helmet.git
-cd helmet
+```text
+1 0.187500000 0.125000000 0.062500000 0.041666667
 ```
 
-第一条命令下载项目，第二条进入项目目录。后面的所有命令都在这里运行。看到目录中有 `README.md`、`scripts/` 和 `requirements-train.txt`，就说明位置正确。
+导出图片和标签按文件名一一配对：
 
-`--recurse-submodules` 会一并下载 `ultralytics/` 中的依赖源码，它被固定在本次实验使用的版本。若之前使用普通克隆下载过项目，在项目目录补执行：
-
-```bash
-git submodule update --init --recursive
+```text
+yolo/
+  data.yaml
+  images/train/example.jpg
+  labels/train/example.txt
 ```
 
-GitHub 的“Download ZIP”不包含子模块源码，本教程使用 Git 克隆。
+项目保留原图字节和尺寸，尺寸适配与归一化交给训练数据管线。`verify()` 会从源 COCO 标注独立计算预期坐标，逐一核对导出结果，避免把标签转换错误带入训练。
 
-## 4. 创建环境并安装依赖
+### 为什么重新划分数据
 
-“虚拟环境”是专门放这个项目所需 Python 包的目录，名字为 `.venv`。它可以减少不同项目之间的依赖冲突。
+原始数据共 7035 张，抽查发现部分图片存在重复目标框、漏标或普通帽子语义不清等问题。项目排除 9 张，没有猜测补标，最终保留 7026 张。
 
-### macOS / Linux
+划分前先检查像素重复，再联合 pHash、dHash 找相似候选，并补充人工场景归组。共识别 233 对相似候选，形成 6809 组；同一组整体进入一个集合，尽量避免相邻帧或同图变体同时出现在训练集和测试集。
 
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
+| 集合 | 图片数 | 戴帽框 | 未戴帽框 | 用途 |
+| --- | ---: | ---: | ---: | --- |
+| train | 4916 | 13799 | 4677 | 计算梯度、更新参数 |
+| val | 1406 | 3938 | 1334 | 选择权重、确定阈值 |
+| test | 704 | 1973 | 666 | 报告最终检测效果 |
+
+随机种子为 42，划分约为 70% / 20% / 10%。人工决定保存在 [manual_review.json](../datasets/hard-hat-workers/audit/manual_review.json)，最终对应关系保存在 [split_manifest.json](../datasets/hard-hat-workers/audit/split_manifest.json)。
+
+原数据缺少可靠的拍摄批次和场景 ID，哈希分组只能控制已识别的相似样本。因此，测试结果代表当前划分上的表现，对新工地的泛化仍需要额外数据验证。具体方法见[预处理记录](../datasets/hard-hat-workers/PREPROCESSING.md)。
+
+## 3. 训练入口做了什么
+
+项目训练入口的核心可以概括为：
+
+```python
+model = YOLO("weights/yolo26n.pt")
+model.train(
+    data="datasets/hard-hat-workers/yolo/data.yaml",
+    epochs=100,
+    batch=8,
+    imgsz=640,
+    patience=20,
+    seed=42,
+)
 ```
 
-### Windows PowerShell
+以上是阅读用的核心调用；设备、输出目录、回调与完整参数以 [train_helmet.py](../scripts/train_helmet.py) 为准。
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
+`YOLO(...)` 加载预训练模型。开始训练时，框架根据数据配置将检测类别适配为两类，并加载形状兼容的预训练参数。本次日志记录迁移了 `696/708` 个参数项，这是 state dict 项数，不是网络层数。随后进行全模型微调，未配置冻结 backbone。
+
+预训练提供了已经学到的视觉特征。本项目通过带标注的安全帽图片继续更新参数，使模型适应目标类别和数据分布。两类模型在本次训练日志中的规模为约 250 万参数。
+
+### 显式参数与实际生效参数
+
+| 参数 | 本次设置 | 在流程中的作用 |
+| --- | --- | --- |
+| 模型 | YOLO26n 预训练权重 | 微调起点，`n` 为该系列的小规模版本 |
+| `epochs` | 100 | 最多遍历训练集 100 轮 |
+| `batch` | 8 | 每个训练 batch 的图片数 |
+| `imgsz` | 640 | 模型输入尺度的配置值 |
+| `patience` | 20 | 验证集 fitness 连续 20 轮未改进时停止 |
+| `seed` | 42 | 控制随机过程，跨设备仍可能存在数值差异 |
+| `device` | 原实验 MPS | 当前入口可自动选择 MPS / CUDA / CPU |
+| `workers` | 2 | 数据加载并发配置，框架可能按设备调整 |
+
+其余参数来自固定版本框架的默认配置。这里需要结合运行结果理解默认值，不能只看参数名称：
+
+- `optimizer=auto`：原训练日志实际选择 **AdamW，初始学习率 0.001667，momentum 参数 0.9**。默认配置中的 `lr0=0.01` 被自动策略覆盖。
+- `warmup_epochs=3`，`cos_lr=False`：先 warmup，再按线性学习率调度继续训练。
+- `nbs=64`：框架进行梯度累积；warmup 后通常约每 8 个 batch 更新一次参数，不能把 `batch=8` 等同于每次优化只使用 8 张图片的梯度。
+- 默认启用 Mosaic、水平翻转、HSV 和尺度/平移等在线增强。没有生成离线增强数据，验证与测试不使用随机训练增强。
+- `close_mosaic=10` 对应计划训练的最后 10 轮；本次第 80 轮提前停止，没有进入原定的关闭窗口。
+- 配置中的 `amp=True` 还需经过设备检查；该固定版本对 MPS 关闭 AMP，不能据此把本次训练描述为 CUDA FP16 训练。
+
+这些细节对应的原训练日志摘录如下，完整日志未纳入 Git 仓库：
+
+```text
+Transferred 696/708 items from pretrained weights
+optimizer: AdamW(lr=0.001667, momentum=0.9)
+EarlyStopping: ... Best results observed at epoch 60 ...
 ```
 
-如果 PowerShell 提示禁止运行激活脚本，可以跳过激活，将后续命令开头的 `python` 换成 `.\.venv\Scripts\python.exe`。例如安装依赖时执行 `.\.venv\Scripts\python.exe -m pip install -r requirements-train.txt`。
+框架固定在 Ultralytics `8.4.177`、提交 `00cd4b8b187b6c7bc34776a6fe25a000f08b5fcc`。自动优化器、损失和默认增强都应按这个版本理解。
 
-### 安装与检查
+## 4. 一次训练迭代如何更新模型
 
-激活后先确认 Python 路径：
+理解 `model.train()`，可以沿着下面的数据流看框架实现：
 
-```bash
-python -c "import sys; print(sys.executable)"
-```
+1. **构造 batch。** 读取图片和标签，应用训练增强与尺寸适配，将图片转为模型使用的张量，并将像素值除以 255。
+2. **前向计算。** Backbone 提取特征，多尺度特征融合后，由检测头产生候选位置的类别分数和框预测。
+3. **分配监督目标。** 使用预测与真实标注的分类和定位信息，为候选位置分配训练目标。训练时的这种目标分配，与评价时把预测框匹配到真实框，是两套用途不同的逻辑。
+4. **计算损失并反向传播。** 分类和定位误差形成可求导的训练目标，通过 `backward()` 计算参数梯度。
+5. **优化器更新。** 达到梯度累积条件后执行梯度裁剪、AdamW 更新、清空梯度，并更新 EMA 参数副本。
+6. **每轮验证。** 在验证集上计算检测指标，记录 CSV，决定是否更新 `best.pt`，以及是否提前结束。
 
-输出应包含当前项目下的 `.venv`。然后安装依赖：
+本项目没有重写这些训练步骤。要继续追踪，优先阅读固定提交中的 [DetectionTrainer](https://github.com/ultralytics/ultralytics/blob/00cd4b8b187b6c7bc34776a6fe25a000f08b5fcc/ultralytics/models/yolo/detect/train.py)、[BaseTrainer](https://github.com/ultralytics/ultralytics/blob/00cd4b8b187b6c7bc34776a6fe25a000f08b5fcc/ultralytics/engine/trainer.py) 和[损失实现](https://github.com/ultralytics/ultralytics/blob/00cd4b8b187b6c7bc34776a6fe25a000f08b5fcc/ultralytics/utils/loss.py)。
 
-```bash
-python -m pip install -r requirements-train.txt
-```
+### 本项目使用的 YOLO26 有哪些实现细节
 
-这一步会下载 PyTorch、OpenCV 等包，并安装子模块中的 Ultralytics，下载量较大，需要等待。即使你暂时只做推理，也使用这份依赖文件安装。
+[模型配置](https://github.com/ultralytics/ultralytics/blob/00cd4b8b187b6c7bc34776a6fe25a000f08b5fcc/ultralytics/cfg/models/26/yolo26.yaml)使用 P3/8、P4/16、P5/32 三个输出尺度，配置为 `end2end=True`、`reg_max=1`。
 
-安装完成后检查：
+训练包含 one-to-many 和 one-to-one 两个分支，`E2ELoss` 按随训练变化的权重组合两者损失。one-to-one 分支在训练时使用 detach 后的特征；应用推理默认使用 one-to-one 分支输出，并走端到端后处理。
 
-```bash
-python -c "import torch, cv2; from ultralytics import YOLO; print('Environment OK'); print('PyTorch:', torch.__version__)"
-```
+本次 CSV 中的三项损失为：
 
-看到 `Environment OK` 表示主要依赖可以导入。依赖文件记录的是原实验环境版本；CUDA 用户可能需要匹配显卡与驱动的 PyTorch 构建，首次运行可以先使用 CPU。
-
-图片上的中文需要字体。macOS 和 Windows 会自动查找常用系统字体；Ubuntu 可先执行：
-
-```bash
-sudo apt install fonts-noto-cjk
-```
-
-其他系统可以通过后面介绍的 `--font` 指定支持中文的字体文件。
-
-## 5. 完成第一次图片检测
-
-### 提取演示视频的第一帧
-
-仓库中已有的 `demo_image.jpg` 是画好检测框的成品。这里从自带视频提取一张没有叠加检测框的画面作为输入，不需要准备自己的图片。
-
-在项目目录复制并执行下面这一整行命令：
-
-```bash
-python -c "from pathlib import Path; import cv2; Path('outputs').mkdir(exist_ok=True); cap=cv2.VideoCapture('deliverables/demo_input.mp4'); ok, frame=cap.read(); cap.release(); assert ok, 'Cannot read demo video'; assert cv2.imwrite('outputs/first_frame.jpg', frame); print('Saved outputs/first_frame.jpg')"
-```
-
-看到 `Saved outputs/first_frame.jpg` 后，可以在文件管理器中打开 `outputs/` 文件夹，查看刚保存的原始画面。
-
-### 执行检测
-
-```bash
-python scripts/monitor_helmet.py --source outputs/first_frame.jpg --output outputs/first_result.jpg --device cpu
-```
-
-三个参数分别表示：
-
-| 参数 | 作用 |
+| 字段 | 对应内容 |
 | --- | --- |
-| `--source` | 输入文件的位置 |
-| `--output` | 结果文件的位置，必须是尚不存在的新文件 |
-| `--device cpu` | 使用 CPU，便于先确认流程能正常运行 |
+| `box_loss` | 基于 CIoU 的框回归损失 |
+| `cls_loss` | 类别预测的 BCE 损失 |
+| `l1_loss` | `reg_max=1` 时使用的归一化框距离 L1 损失 |
 
-执行结束后会输出一行 JSON，例如：
+配置仍沿用 `dfl` 作为第三项增益的参数名，但该模型走的是 L1 分支。`E2ELoss` 用于记录的分项来自 one-to-one 分支，CSV 中的三列不能直接还原双分支加权后的总训练目标。阅读其他 YOLO 版本的教程时，需要核对这些差异。
 
-```json
-{"output": "outputs/first_result.jpg", "frames": 1, "counts": [2, 0]}
-```
+## 5. 怎样判断训练结束，以及选哪份权重
 
-这表示保存了 1 张图片，检出 2 个戴帽目标、0 个未戴帽目标。`counts` 的顺序始终是 `[戴帽, 未戴帽]`；具体数量以你的运行结果为准。
+本次计划 100 轮，实际完成 80 轮，耗时约 3 小时 56 分钟。以下数据来自 [results.csv](../runs/helmet/yolo26n_100e_b8_20261015_145934/results.csv)：
 
-打开 `outputs/first_result.jpg`：如果看到了检测框、类别文字和顶部统计条，就已经完成第一次检测。第一帧只有绿色框也正常，并非每一帧都有两类目标。
+| Epoch | train box loss | val box loss | val mAP50 | val mAP50–95 |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 1.45489 | 1.34460 | 93.34% | 55.64% |
+| 20 | 1.27910 | 1.23817 | 95.70% | 64.20% |
+| 60 | 1.17052 | 1.16340 | 96.78% | 67.41% |
+| 80 | 1.10670 | 1.16617 | 96.94% | 67.19% |
 
-**再次运行时请换一个输出名**，例如 `outputs/first_result_02.jpg`。程序会拒绝覆盖已有结果。
+![训练损失与验证指标曲线](../runs/helmet/yolo26n_100e_b8_20261015_145934/results.png)
 
-## 6. 检测视频
+固定版本的检测 fitness 使用验证集 **mAP50–95**。第 60 轮取得最佳值，之后 20 轮没有超过它，触发 `patience=20`。所以本次使用第 60 轮对应的 `best.pt`。第 80 轮训练损失更低、mAP50 略高，也不会改变按 mAP50–95 选模型的规则。
 
-先处理演示视频的前 24 帧，确认本机能正常导出视频：
+`last.pt` 表示最后状态，与最佳验证表现的权重用途不同。框架维护 EMA，并以 EMA 参数参与验证和检查点保存；项目最终只发布了用于评价与演示的 `best.pt`。
 
-```bash
-python scripts/monitor_helmet.py --source deliverables/demo_input.mp4 --output outputs/video_short.mp4 --device cpu --max-frames 24
-```
+曲线显示后期训练损失继续下降，而验证指标进入平台期。它支持“继续相同训练的收益有限”这一判断；当前结果不足以直接证明严重过拟合，也不能证明对新工地一定泛化良好。
 
-成功后，终端输出中应出现 `frames` 和 `decoded`，两者均为 `24`。`decoded` 表示程序保存后重新读取成功的帧数。
+## 6. 训练完成后，还有两件不同的评价工作
 
-然后可以处理完整视频：
+### 标准 AP：模型整体检测能力
 
-```bash
-python scripts/monitor_helmet.py --source deliverables/demo_input.mp4 --output outputs/video_full.mp4 --device cpu
-```
+[evaluate_helmet.py](../scripts/evaluate_helmet.py)加载固定的 `best.pt`，在测试集上以较低候选阈值 `conf=0.001` 收集预测，计算 Precision–Recall 曲线和 AP。
 
-完整演示视频是 15 秒、24 fps，共 360 帧。正常完成后 `frames` 和 `decoded` 应均为 `360`。处理耗时取决于设备，保存的视频保留输入帧率，**没有声音**。
+AP50 在 IoU≥0.50 的匹配要求下计算 AP；AP50–95 再对 0.50～0.95、步长 0.05 的匹配阈值取平均，因此对框的位置精度要求更高。
 
-视频导出需要 OpenCV 支持 H.264 编码。如果图片成功、视频出现 `H.264 encoder unavailable`，说明当前 OpenCV 构建不具备所需编码器；可以继续使用图片检测，视频导出需换用支持 H.264 编码的 OpenCV 构建。单独安装 `ffmpeg` 命令并不会自动改变已安装 OpenCV 的编码能力。
-
-有图形桌面时，可以在命令末尾加 `--show` 边处理边预览，按 Q 退出。CPU 的处理速度可能低于原视频播放速度，预览不保证实时。
-
-## 7. 换成自己的图片或视频
-
-在项目目录新建 `inputs/` 文件夹，把素材放进去。文件名建议先使用简单的英文，例如 `site.jpg` 或 `site.mp4`。`inputs/` 存放自己的输入素材，`outputs/` 存放生成结果，这两个文件夹都已加入 Git 忽略规则。
-
-图片示例：
-
-```bash
-python scripts/monitor_helmet.py --source inputs/site.jpg --output outputs/site_result.jpg --device cpu
-```
-
-视频示例：
-
-```bash
-python scripts/monitor_helmet.py --source inputs/site.mp4 --output outputs/site_result.mp4 --device cpu
-```
-
-路径包含空格时，用英文双引号包起来，例如 `--source "inputs/my site.jpg"`。输入图片可使用 JPG、PNG 等格式；视频输出需以 `.mp4` 结尾。
-
-确认 CPU 能跑通后，可以去掉 `--device cpu`，让程序自动选择 Apple MPS、NVIDIA CUDA 或 CPU。也可以用 `--device mps` 或 `--device 0` 显式选择设备，前提是相应硬件和 PyTorch 环境可用。
-
-摄像头是可选功能，未参与本次实验验收。有摄像头的电脑可以尝试：
-
-```bash
-python scripts/monitor_helmet.py --camera --source 0 --output outputs/camera_result.mp4 --show --max-frames 120
-```
-
-`0` 表示默认摄像头；系统可能要求授予终端摄像头访问权限。该命令最多处理 120 帧，也可按 Q 提前结束。
-
-## 8. 怎样理解检测结果
-
-框旁边的数字是模型对该次分类的置信度。例如 `0.87` 表示模型对这个预测较有把握，不能把它理解为“此人有 87% 的概率符合安全规定”。默认只显示置信度达到 **0.40** 的预测，该阈值由验证集选择。
-
-顶部人数只统计当前帧中的检测框。同一个人连续出现在 100 帧中，不会被累计成 100 个不同的人；系统也没有跨帧追踪和去重计数功能。
-
-“当前帧未检出未戴帽目标”表示模型没有检出该类目标。远处的小头部、遮挡和模糊画面都可能造成漏检，不能据此认定画面中所有人都戴了安全帽。
-
-本次固定测试集上，阈值 0.40 时的结果如下：
-
-| 类别 | Precision（查准率） | Recall（召回率） |
+| 类别 | AP50 | AP50–95 |
 | --- | ---: | ---: |
-| 戴帽 | 94.65% | 95.13% |
-| 未戴帽 | 92.52% | 89.19% |
+| helmet | 98.05% | 66.96% |
+| no_helmet | 94.97% | 67.34% |
+| 两类平均 | 96.51% | 67.15% |
 
-以未戴帽类为例：查准率衡量“模型报出的未戴帽目标中，有多少报对了”，召回率衡量“标注中的未戴帽目标中，有多少被找到了”。这些数值描述本次测试集，不能直接当作其他工地的效果保证。
+数值见 [metrics.json](../runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/metrics.json)。AP50 与 AP50–95 的差距说明严格定位仍有改进空间；小目标和标注范围差异可能相关，尚无消融实验证明其各自贡献。
 
-`config/monitor.json` 保存了本次验证过的阈值、权重路径和 SHA256 校验值。入门阶段保持该配置即可，效果分析见[最终报告](../deliverables/工地安全帽佩戴检测实验报告.docx)和[实验结果分析](../runs/evaluation/yolo26n_100e_b8_20261015_145934_test_metrics/ANALYSIS.md)。
+该文件中的 P/R 使用测试曲线最大平滑平均 F1 对应的统计点，置信度约为 0.34835。这是标准指标的汇报口径。
 
-## 9. 常见问题
+### 固定阈值：应用实际会报出什么
 
-| 现象或报错 | 处理方法 |
-| --- | --- |
-| `can't open file ...scripts/monitor_helmet.py`，或找不到 requirements | 当前目录不对。进入包含 `README.md` 的 `helmet` 项目目录后重试。 |
-| `No module named pip` | 在已选好的虚拟环境里执行 `python -m ensurepip --upgrade`，再安装依赖。 |
-| 创建环境时提示 `ensurepip is not available` | Debian / Ubuntu 环境通常需要安装对应版本的 venv 支持包，例如 `python3.12-venv`，再重新创建虚拟环境。 |
-| `No module named cv2`、`torch` 或无法导入 `YOLO` | 检查 `sys.executable` 是否指向 `.venv`，确认子模块已下载，再执行依赖安装命令。 |
-| 依赖安装提示某个版本找不到 | 确认 Python 为 3.12；若在使用包镜像，检查镜像是否提供该版本。依赖快照不保证覆盖所有操作系统和硬件组合。 |
-| `Chinese font required` | 安装中文字体，或在检测命令末尾加 `--font "字体文件的完整路径"`，可使用支持中文的 `.ttf` 或 `.ttc`。 |
-| `Refusing to overwrite ...` | 输出已经存在，换一个输出文件名；训练和评价也需要使用新的运行名。 |
-| `FileNotFoundError` 指向输入图片或视频 | 检查路径、扩展名和当前目录；含空格的路径加双引号。 |
-| `Weight checksum differs from the validated model` | 权重与冻结配置不匹配。恢复仓库原始 `best.pt` 和配置，重新训练的模型需另外配置与验证。 |
-| `H.264 encoder unavailable` | 先使用图片检测。视频导出需要支持 H.264 编码的 OpenCV 构建。 |
-| 使用 MPS / CUDA 时报错 | 加 `--device cpu` 先排除加速环境问题。CPU 跑通后，再检查设备对应的 PyTorch 安装。 |
-| 没有弹出窗口 | 默认只保存文件。到 `outputs/` 查看结果；视频需要预览时添加 `--show`。 |
-| CPU 很慢或长视频迟迟没结束 | 先用 `--max-frames 24` 测试，确认流程正常后再处理完整视频。 |
+应用需要一个具体的置信度阈值。[validate_monitor.py](../scripts/validate_monitor.py)在验证集搜索 0.10～0.80、步长 0.05，最大化未戴帽类 F1；并列时依次优先 Precision、较高阈值，最终选出 **0.40**。
 
-查看程序支持的全部参数：
+脚本先写入冻结配置，再读取测试集，使用相同阈值统计 TP、FP、FN。匹配要求为类别正确、IoU≥0.50，按预测置信度降序进行一对一贪心匹配。
 
-```bash
-python scripts/monitor_helmet.py --help
-```
+| 类别 | TP | FP | FN | Precision | Recall |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| helmet | 1877 | 106 | 96 | 94.65% | 95.13% |
+| no_helmet | 594 | 48 | 72 | 92.52% | 89.19% |
 
-## 10. 以后每次怎么启动
+这组结果对应演示实际使用的阈值，与上面的标准评价 P/R 统计点不同。测试集此前已用于标准 AP 汇报；整个过程中未依据测试结果重新训练或选择阈值。搜索记录及固定阈值结果见 [acceptance.json](../deliverables/acceptance.json)。
 
-环境只需创建一次。以后打开新的终端，进入项目目录，再激活已有环境：
+还需要区分三种容易混淆的量：置信度阈值决定保留哪些预测；评价匹配 IoU 决定预测位置是否算对；API 中的 `iou=0.7` 属于后处理参数。YOLO26 默认端到端输出不需要传统 NMS，不能把该参数解释为本次评价的匹配阈值。
 
-macOS / Linux：
+## 7. 从模型到演示程序
 
-```bash
-cd helmet
-source .venv/bin/activate
-```
+[config/monitor.json](../config/monitor.json)把权重路径、SHA256、输入尺度、阈值等绑定在一起。[monitor_helmet.py](../scripts/monitor_helmet.py)加载时先验证权重哈希，再执行推理和结果绘制。这保证演示使用的模型与记录中的模型一致。
 
-Windows PowerShell：
+图片和视频验证了输入、提示、绘制与保存流程。视频没有逐帧真值标注，不能用演示观感替代测试集上的定量结果。程序按当前帧统计检测框，不做跨帧人员跟踪；未检出目标也不会自动被归类为未戴帽。
 
-```powershell
-cd helmet
-.\.venv\Scripts\Activate.ps1
-```
+如果要评价新训练的模型，必须显式指定 `--weights`；检测程序则需另建匹配新权重的配置并重新验证阈值。当前阈值搜索脚本绑定原实验的权重路径，尚未提供 `--weights` 参数。
 
-这里的 `cd helmet` 假设你当前在项目的上一级目录；如果项目保存在其他地方，应换成实际路径。激活后即可运行检测，无需每次重新安装依赖。使用结束可执行 `deactivate` 退出环境。
+## 8. 复现入口与继续实验的边界
 
-## 11. 进阶：重新训练与评价
+环境安装见[项目 README](../README.md#快速开始)，原始数据恢复见[数据说明](../datasets/hard-hat-workers/README.md#恢复数据与重新生成划分)。原始数据和生成的 YOLO 数据未纳入仓库。
 
-这一节会下载完整数据并进行较长时间的计算。只使用现成模型做检测，可以停留在前面的步骤。
-
-### 恢复数据
-
-按[数据恢复说明](../datasets/hard-hat-workers/README.md#恢复数据与重新生成划分)下载 Kaggle 镜像版本 1，将 COCO 原始数据放到指定目录，然后运行：
+数据就绪后，各阶段命令如下；运行名和结果文件均需使用新名称：
 
 ```bash
 python scripts/prepare_dataset.py audit
 python scripts/prepare_dataset.py prepare
 python scripts/prepare_dataset.py verify
+
+python scripts/train_helmet.py --run-name review_training
+python scripts/evaluate_helmet.py --run-name review_test --weights runs/helmet/review_training/weights/best.pt
 ```
 
-`audit` 检查图片与标注，`prepare` 清洗并生成 YOLO 格式的数据，`verify` 核对生成结果。最终保留 7026 张图片：训练集 4916 张、验证集 1406 张、测试集 704 张。训练集用于学习，验证集用于选择模型和阈值，测试集用于最后评价。
+已有生成数据时跳过前三条，`prepare` 会拒绝覆盖已有 `yolo/`。训练入口当前暴露 `--run-name`、`--device`，其他显式参数在脚本的 `options` 中。
 
-已有 `yolo/` 时，`prepare` 会拒绝覆盖；不要重复运行它来尝试修复其他报错。完整处理规则见[预处理记录](../datasets/hard-hat-workers/PREPROCESSING.md)。
-
-### 启动新训练
+若要重新核验原实验模型的阈值搜索：
 
 ```bash
-python scripts/train_helmet.py --run-name my_first_training
+python scripts/validate_monitor.py --output outputs/review_acceptance.json --config-output outputs/review_monitor.json
 ```
 
-初次训练会尝试下载上游预训练权重 `yolo26n.pt`，需要能访问下载源。脚本固定设置最多 100 轮、batch=8、输入尺寸 640、seed=42，连续 20 轮未改进时提前结束。当前入口没有 `--epochs` 或 `--batch` 参数，如需改动，应先查看 `scripts/train_helmet.py` 中的 `options`。
+继续研究时，优先把问题落到可比较的实验上：小目标漏检可比较输入尺度与裁剪策略；普通帽子误识别可补充边界样本与语义复标；新工地泛化可引入按场景独立留出的数据。每次固定划分与评价协议、记录变量变化，才能判断改进来自哪里。
 
-训练结果保存在 `runs/helmet/my_first_training/`。其中 `weights/best.pt` 是新训练选出的最佳权重，`logs/status.json` 记录状态。运行名已经存在时，换一个名字。本次原实验在 MPS 上耗时约 3 小时 56 分钟，不能按这个时间估算其他设备，CPU 训练通常更慢。
-
-### 评价新模型
-
-```bash
-python scripts/evaluate_helmet.py --run-name my_first_test --weights runs/helmet/my_first_training/weights/best.pt
-```
-
-结果写入 `runs/evaluation/my_first_test/`，包括 `metrics.json` 和曲线。**省略 `--weights` 会评价仓库自带的原实验权重**，不会自动改成你刚训练的模型。
-
-新训练也不会自动替换检测程序的冻结模型。`monitor_helmet.py` 默认仍读取 `config/monitor.json`；若要切换模型，需要准备单独的配置、填入对应的权重路径和 SHA256，并重新验证适用阈值，再通过 `--config` 使用它。当前 `validate_monitor.py` 针对原实验权重编写，没有切换权重的命令行参数。
-
-新生成的 `outputs/`、数据集和训练运行目录默认不会被 Git 提交。理解复现流程后，可以继续阅读[项目 README](../README.md)中的实验指标及[第三方来源说明](../THIRD_PARTY_NOTICES.md)。
+本项目只完成一套正式训练配置，没有做模型规模、增强策略或输入尺度的系统消融。现有结果可以用于讨论一次完整的 YOLO 微调流程，后续方案仍需新的实验验证。更完整的结果与场景分析见[实验报告](../deliverables/工地安全帽佩戴检测实验报告.docx)。
